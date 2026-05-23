@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.python-version
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Generated artifacts
+mrf_dashboard.html
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
