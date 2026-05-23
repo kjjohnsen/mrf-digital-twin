@@ -405,50 +405,37 @@ def build_gantt(mrf: MRF) -> go.Figure:
 
 
 def build_factory_layout(mrf: MRF) -> go.Figure:
-    """Animated top-down 2D layout of the facility showing material flow over the day.
+    """Vertical 2D layout — material flows top-to-bottom along a single conveyor.
 
-    Stations sit on a horizontal conveyor. Truck loads appear as dots that move from
-    station to station as they're processed. Bale piles above each station grow as
-    material accumulates. The tipping-floor pile (left) and landfill pile (below)
-    expand and contract in real time.
+    Stations stack vertically along the conveyor (left). Bales accumulate to the
+    right of each extraction station. A shared landfill pile sits at the bottom
+    right. Vertical orientation reads well on phone screens (portrait); the
+    previous horizontal layout squeezed 11 stations into too narrow a viewport.
     """
-    # ---- positions ----
-    TIPPING_POS = (0.4, 3.0)
-    OUTPUT_POS = (10.6, 3.0)
-    POS = {
-        "pre_sort":      (1.6, 3.0),
-        "OCC_screen":    (2.6, 3.0),
-        "paper_screen":  (3.6, 3.0),
-        "glass_breaker": (4.6, 3.0),
-        "magnet":        (5.6, 3.0),
-        "eddy_current":  (6.6, 3.0),
-        "optical_PET":   (7.6, 3.0),
-        "optical_HDPE":  (8.6, 3.0),
-        "manual_QC":     (9.6, 3.0),
-    }
-    BALE_POS = {
-        "OCC":         (2.6, 5.0),
-        "mixed_paper": (3.6, 5.0),
-        "glass":       (4.6, 5.0),
-        "steel":       (5.6, 5.0),
-        "aluminum":    (6.6, 5.0),
-        "PET":         (7.6, 5.0),
-        "HDPE":        (8.6, 5.0),
-    }
-    LANDFILL_POS = (5.6, 1.0)
+    STATION_X = 3.0
+    BALE_X = 5.0
+    TIPPING_POS = (STATION_X, 11.5)
+    LANDFILL_POS = (BALE_X, 1.5)
 
-    # Map station -> non-residue material it extracts (for chute drawing)
-    extracts: dict[str, str] = {}
-    for st_name, _, recoveries in PROCESS_LINE:
+    # Stations stack vertically in PROCESS_LINE order: pre_sort at top, manual_QC at bottom.
+    POS = {STATIONS[i]: (STATION_X, 10.5 - i) for i in range(len(STATIONS))}
+
+    # Map each non-residue extraction station to the material it produces; the
+    # bale appears at the same y as its station.
+    station_to_bale: dict[str, str] = {}
+    for name, _, recoveries in PROCESS_LINE:
         for material in recoveries:
             if material != "residue":
-                extracts[st_name] = material
+                station_to_bale[name] = material
                 break
+    BALE_POS = {m: (BALE_X, POS[s][1]) for s, m in station_to_bale.items()}
+    bale_materials = list(BALE_POS.keys())
 
-    # ---- status timeline lookup ----
-    status_timeline: dict[str, list[tuple[float, str]]] = {
-        st: [(DAY_START, "running")] for st in STATIONS
-    }
+    def pretty_material(m: str) -> str:
+        return m if m.isupper() else m.replace("_", " ").capitalize()
+
+    # ---- status / load-location lookups ----
+    status_timeline = {st: [(DAY_START, "running")] for st in STATIONS}
     for t, n, s in mrf.status_log:
         status_timeline[n].append((t, s))
 
@@ -461,7 +448,7 @@ def build_factory_layout(mrf: MRF) -> go.Figure:
                 break
         return last
 
-    def load_location_at(load: TruckLoad, t: float) -> str | None:
+    def load_location_at(load: TruckLoad, t: float):
         if t < load.arrival_time:
             return None
         loc = "tipping_floor"
@@ -472,64 +459,54 @@ def build_factory_layout(mrf: MRF) -> go.Figure:
                 break
         return None if loc == "done" else loc
 
-    # pre-index snapshots by ascending time for fast lookup
     snapshot_times = [s["t"] for s in mrf.snapshots]
 
     def snapshot_at(t: float) -> dict:
         idx = max((i for i, st in enumerate(snapshot_times) if st <= t), default=0)
         return mrf.snapshots[idx]
 
-    # ---- static layout: conveyor belt, chutes, labels ----
+    # ---- static layout: belt, chutes, labels ----
     shapes: list[dict] = []
     annotations: list[dict] = []
 
-    # Conveyor belt (thick rectangle)
+    # Vertical conveyor belt
     shapes.append(dict(
         type="rect",
-        x0=TIPPING_POS[0] - 0.2, y0=2.82, x1=OUTPUT_POS[0] + 0.2, y1=3.18,
+        x0=STATION_X - 0.18, y0=1.9,
+        x1=STATION_X + 0.18, y1=TIPPING_POS[1] + 0.1,
         fillcolor="#b0b0b0", line=dict(color="#555", width=1), layer="below",
     ))
-    # Direction arrows along the belt
-    for x in (1.0, 4.0, 7.0, 10.0):
+    # Down-arrows along the belt
+    for y in (10.0, 7.5, 5.0, 2.5):
         annotations.append(dict(
-            x=x + 0.35, y=3.0, ax=x - 0.05, ay=3.0,
+            x=STATION_X, y=y - 0.5, ax=STATION_X, ay=y + 0.05,
             xref="x", yref="y", axref="x", ayref="y",
-            showarrow=True, arrowhead=2, arrowsize=1.4, arrowwidth=2,
+            showarrow=True, arrowhead=2, arrowsize=1.3, arrowwidth=2,
             arrowcolor="#444", standoff=0, startstandoff=0,
         ))
 
-    # Output chutes: station -> bale (dashed line going up)
-    for st_name, material in extracts.items():
-        sx, sy = POS[st_name]
+    # Station -> bale chutes (horizontal dashed lines)
+    for station_name, material in station_to_bale.items():
+        sx, sy = POS[station_name]
         bx, by = BALE_POS[material]
         shapes.append(dict(
-            type="line", x0=sx, y0=sy + 0.30, x1=bx, y1=by - 0.30,
+            type="line", x0=sx + 0.18, y0=sy, x1=bx - 0.18, y1=by,
             line=dict(color="#aaa", width=2, dash="dot"), layer="below",
         ))
 
-    # Residue chutes: pre_sort and manual_QC -> landfill
-    for st_name in ("pre_sort", "manual_QC"):
-        sx, sy = POS[st_name]
-        lx, ly = LANDFILL_POS
+    # Residue chutes from pre_sort and manual_QC to the shared landfill — light
+    # diagonals so they don't dominate the visual.
+    for station_name in ("pre_sort", "manual_QC"):
+        sx, sy = POS[station_name]
         shapes.append(dict(
-            type="line", x0=sx, y0=sy - 0.30, x1=sx, y1=ly + 0.25,
-            line=dict(color="#888", width=2, dash="dot"), layer="below",
+            type="line",
+            x0=sx + 0.18, y0=sy - 0.18,
+            x1=LANDFILL_POS[0] - 0.18, y1=LANDFILL_POS[1] + 0.18,
+            line=dict(color="rgba(120,120,120,0.5)", width=1.5, dash="dot"),
+            layer="below",
         ))
-        if sx != lx:
-            shapes.append(dict(
-                type="line", x0=sx, y0=ly + 0.05, x1=lx, y1=ly + 0.05,
-                line=dict(color="#888", width=2, dash="dot"), layer="below",
-            ))
 
-    # Tipping floor feed chute (pile -> conveyor entry)
-    shapes.append(dict(
-        type="line",
-        x0=TIPPING_POS[0] + 0.05, y0=TIPPING_POS[1] - 0.05,
-        x1=POS["pre_sort"][0] - 0.30, y1=POS["pre_sort"][1],
-        line=dict(color="#888", width=2, dash="dot"), layer="below",
-    ))
-
-    # Station labels (white text over the squares)
+    # Station name labels (inside each station box, white text)
     for st in STATIONS:
         x, y = POS[st]
         annotations.append(dict(
@@ -539,51 +516,47 @@ def build_factory_layout(mrf: MRF) -> go.Figure:
             xanchor="center", yanchor="middle",
         ))
 
-    def pretty_material(m: str) -> str:
-        # Keep uppercase abbreviations (OCC, PET, HDPE) as-is; capitalize the rest
-        return m if m.isupper() else m.replace("_", " ").capitalize()
-
-    # Bale name labels (above each pile, with extra clearance for the tonnage line below)
+    # Bale name labels (to the right of each bale square, with tonnage on a second line below)
     for material, (bx, by) in BALE_POS.items():
         annotations.append(dict(
-            x=bx, y=by + 1.0, xref="x", yref="y",
+            x=bx + 0.45, y=by + 0.12, xref="x", yref="y",
             text=f"<b>{pretty_material(material)}</b>", showarrow=False,
             font=dict(size=10, color="#333"),
+            xanchor="left", yanchor="middle",
         ))
 
-    # Tipping floor label (positioned well above the pile so it doesn't clash with
-    # the pile's tonnage readout when the pile gets large)
+    # Tipping floor label (above the pile)
     annotations.append(dict(
-        x=TIPPING_POS[0], y=TIPPING_POS[1] + 1.35, xref="x", yref="y",
+        x=TIPPING_POS[0], y=12.55, xref="x", yref="y",
         text="<b>Tipping floor</b>", showarrow=False,
-        font=dict(size=10, color="#333"), align="center",
-    ))
-    # Landfill label
-    annotations.append(dict(
-        x=LANDFILL_POS[0], y=LANDFILL_POS[1] - 0.55, xref="x", yref="y",
-        text="<b>Landfill (residue)</b>", showarrow=False,
         font=dict(size=10, color="#333"),
+        xanchor="center", yanchor="middle",
+    ))
+    # Landfill label (to the right of the pile)
+    annotations.append(dict(
+        x=LANDFILL_POS[0] + 0.45, y=LANDFILL_POS[1], xref="x", yref="y",
+        text="<b>Landfill<br>(residue)</b>", showarrow=False,
+        font=dict(size=10, color="#333"),
+        xanchor="left", yanchor="middle",
     ))
 
     # ---- dynamic data builders ----
     station_x_arr = [POS[s][0] for s in STATIONS]
     station_y_arr = [POS[s][1] for s in STATIONS]
-    bale_materials = list(BALE_POS.keys())
     bale_x_arr = [BALE_POS[m][0] for m in bale_materials]
     bale_y_arr = [BALE_POS[m][1] for m in bale_materials]
     bale_color_arr = [MATERIAL_COLORS[m] for m in bale_materials]
+    # Tonnage text sits just below each bale name label
+    bale_tonnage_x_arr = [bx + 0.45 for (bx, _) in BALE_POS.values()]
+    bale_tonnage_y_arr = [by - 0.18 for (_, by) in BALE_POS.values()]
 
     def stations_colors(t: float) -> list[str]:
         return ["#2ecc71" if station_status_at(st, t) == "running" else "#e74c3c"
                 for st in STATIONS]
 
-    # Pre-allocate one marker slot per load so each load has a stable index across
-    # frames. Plotly's frame transition interpolates marker positions by index — if
-    # the array shrank when a load finished, every remaining load would shift one
-    # slot and appear to slide backward.
     total_loads = len(mrf.loads)
 
-    def loads_xy(t: float) -> tuple[list, list, list[str]]:
+    def loads_xy(t: float):
         xs: list = [None] * total_loads
         ys: list = [None] * total_loads
         txts: list[str] = [""] * total_loads
@@ -591,45 +564,48 @@ def build_factory_layout(mrf: MRF) -> go.Figure:
             loc = load_location_at(load, t)
             if loc is None:
                 continue
-            # Each load gets a permanent offset within its current station's box,
-            # keyed by load.id, so it doesn't visually jump when neighbors leave.
+            # Per-load offset keyed by load.id so a load keeps its cluster slot
+            # even as neighbors come and go.
             if loc == "tipping_floor":
+                # Loads waiting on the tipping floor cluster to the LEFT of the pile.
                 base = TIPPING_POS
-                col = load.id % 4
-                row = (load.id // 4) % 3
-                xs[i] = base[0] - 0.18 + col * 0.12
-                ys[i] = base[1] + 0.35 - row * 0.13
+                col = load.id % 3
+                row = (load.id // 3) % 3
+                xs[i] = base[0] - 0.45 - col * 0.14
+                ys[i] = base[1] + 0.18 - row * 0.13
             elif loc in POS:
+                # Loads being processed cluster to the LEFT of their station box.
                 base = POS[loc]
                 col = load.id % 2
                 row = (load.id // 2) % 3
-                xs[i] = base[0] - 0.12 + col * 0.24
-                ys[i] = base[1] - 0.50 - row * 0.18
+                xs[i] = base[0] - 0.42 - col * 0.16
+                ys[i] = base[1] + 0.22 - row * 0.22
             else:
                 continue
             txts[i] = f"Load #{load.id} &middot; {loc}"
         return xs, ys, txts
 
-    def bales_sizes_texts(t: float) -> tuple[list[float], list[str]]:
+    def bales_sizes_texts(t: float):
         snap = snapshot_at(t)
         sizes, texts = [], []
-        for material in bale_materials:
-            amount = snap["recovered"].get(material, 0.0)
-            sizes.append(20 + amount * 1.1)
-            texts.append(f"{amount:.1f}t")
+        for m in bale_materials:
+            amt = max(0.0, snap["recovered"].get(m, 0.0))
+            # Gentle growth so adjacent bale squares (1 unit apart in y) don't crowd.
+            sizes.append(16 + amt * 0.55)
+            texts.append(f"{amt:.1f}t")
         return sizes, texts
 
-    def tipping_size_text(t: float) -> tuple[float, str]:
+    def tipping_size_text(t: float):
         snap = snapshot_at(t)
         tip = max(0.0, snap["tipping_floor"])
-        return 24 + tip * 2.4, f"{tip:.1f}t"
+        return 22 + tip * 1.6, f"{tip:.1f}t"
 
-    def landfill_size_text(t: float) -> tuple[float, str]:
+    def landfill_size_text(t: float):
         snap = snapshot_at(t)
         res = snap["residue"]
-        return 22 + res * 0.7, f"{res:.1f}t"
+        return 22 + res * 0.55, f"{res:.1f}t"
 
-    # ---- initial trace data (at simulation start) ----
+    # ---- initial traces ----
     t0 = mrf.snapshots[0]["t"]
     st_colors0 = stations_colors(t0)
     lx0, ly0, lt0 = loads_xy(t0)
@@ -639,38 +615,36 @@ def build_factory_layout(mrf: MRF) -> go.Figure:
 
     stations_trace = go.Scatter(
         x=station_x_arr, y=station_y_arr, mode="markers",
-        marker=dict(symbol="square", size=46, color=st_colors0,
+        marker=dict(symbol="square", size=36, color=st_colors0,
                     line=dict(color="black", width=1.2)),
         hovertext=STATIONS, hoverinfo="text",
         showlegend=False, name="stations",
     )
     loads_trace = go.Scatter(
         x=lx0, y=ly0, mode="markers",
-        marker=dict(symbol="circle", size=11, color="#f39c12",
-                    line=dict(color="black", width=0.6)),
+        marker=dict(symbol="circle", size=10, color="#f39c12",
+                    line=dict(color="black", width=0.5)),
         hovertext=lt0, hoverinfo="text",
         showlegend=False, name="loads",
     )
-    # Bale squares: markers only — tonnage text on small piles overflowed.
     bales_trace = go.Scatter(
         x=bale_x_arr, y=bale_y_arr, mode="markers",
         marker=dict(symbol="square", size=bs0, color=bale_color_arr,
                     line=dict(color="black", width=1)),
         hoverinfo="skip", showlegend=False, name="bales",
     )
-    # Bale tonnage labels at a fixed y just above the squares, independent of size.
-    bale_tonnage_y_arr = [by + 0.55 for (_, by) in BALE_POS.values()]
     bale_tonnages_trace = go.Scatter(
-        x=bale_x_arr, y=bale_tonnage_y_arr, mode="text",
-        text=bt0, textfont=dict(size=10, color="#333"),
+        x=bale_tonnage_x_arr, y=bale_tonnage_y_arr, mode="text",
+        text=bt0, textfont=dict(size=9, color="#555"),
+        textposition="middle right",
         hoverinfo="skip", showlegend=False, name="bale_tonnages",
     )
     tipping_trace = go.Scatter(
-        x=[TIPPING_POS[0]], y=[TIPPING_POS[1] + 0.3], mode="markers+text",
-        marker=dict(symbol="triangle-up", size=tsize0, color="#7f8c8d",
+        x=[TIPPING_POS[0]], y=[TIPPING_POS[1]], mode="markers+text",
+        marker=dict(symbol="triangle-down", size=tsize0, color="#7f8c8d",
                     line=dict(color="black", width=1)),
-        text=[ttext0], textposition="top center",
-        textfont=dict(size=10, color="#333"),
+        text=[ttext0], textposition="middle right",
+        textfont=dict(size=9, color="#333"),
         hoverinfo="skip", showlegend=False, name="tipping",
     )
     landfill_trace = go.Scatter(
@@ -687,10 +661,11 @@ def build_factory_layout(mrf: MRF) -> go.Figure:
         baled = sum(snap["recovered"].values())
         tip = max(0.0, snap["tipping_floor"])
         return (f"<b>{hhmm(t)}</b>   "
-                f"trucks arrived: {snap['loads_arrived']}   "
-                f"loads completed: {snap['loads_completed']}   "
-                f"tipping floor: {tip:.1f}t   "
-                f"baled: {baled:.1f}t   residue: {snap['residue']:.1f}t")
+                f"trucks: {snap['loads_arrived']}   "
+                f"done: {snap['loads_completed']}   "
+                f"baled: {baled:.1f}t   "
+                f"residue: {snap['residue']:.1f}t   "
+                f"tipping: {tip:.1f}t")
 
     # ---- frames ----
     frames: list[go.Frame] = []
@@ -705,18 +680,19 @@ def build_factory_layout(mrf: MRF) -> go.Figure:
         frames.append(go.Frame(
             data=[
                 go.Scatter(x=station_x_arr, y=station_y_arr,
-                           marker=dict(symbol="square", size=46, color=st_colors,
+                           marker=dict(symbol="square", size=36, color=st_colors,
                                        line=dict(color="black", width=1.2))),
                 go.Scatter(x=lx, y=ly, hovertext=lt,
-                           marker=dict(symbol="circle", size=11, color="#f39c12",
-                                       line=dict(color="black", width=0.6))),
+                           marker=dict(symbol="circle", size=10, color="#f39c12",
+                                       line=dict(color="black", width=0.5))),
                 go.Scatter(x=bale_x_arr, y=bale_y_arr,
                            marker=dict(symbol="square", size=bs, color=bale_color_arr,
                                        line=dict(color="black", width=1))),
-                go.Scatter(x=bale_x_arr, y=bale_tonnage_y_arr,
-                           text=bt, textfont=dict(size=10, color="#333")),
-                go.Scatter(x=[TIPPING_POS[0]], y=[TIPPING_POS[1] + 0.3],
-                           marker=dict(symbol="triangle-up", size=tsize, color="#7f8c8d",
+                go.Scatter(x=bale_tonnage_x_arr, y=bale_tonnage_y_arr,
+                           text=bt, textfont=dict(size=9, color="#555")),
+                go.Scatter(x=[TIPPING_POS[0]], y=[TIPPING_POS[1]],
+                           marker=dict(symbol="triangle-down", size=tsize,
+                                       color="#7f8c8d",
                                        line=dict(color="black", width=1)),
                            text=[ttext]),
                 go.Scatter(x=[LANDFILL_POS[0]], y=[LANDFILL_POS[1]],
@@ -729,15 +705,14 @@ def build_factory_layout(mrf: MRF) -> go.Figure:
             layout=go.Layout(title=title_for(t)),
         ))
 
-    # ---- legend for status ----
-    # add a small fake legend via annotation
+    # Status legend at the top of the chart
     annotations.append(dict(
-        x=0.0, y=6.7, xref="x", yref="y", showarrow=False,
-        text=("<b>Equipment status:</b>  "
+        x=STATION_X, y=13.0, xref="x", yref="y", showarrow=False,
+        text=("<b>Status:</b>  "
               "<span style='color:#2ecc71'>&#9632; running</span>   "
               "<span style='color:#e74c3c'>&#9632; down</span>   "
               "<span style='color:#f39c12'>&#9679; truck load</span>"),
-        font=dict(size=11, color="#333"), xanchor="left",
+        font=dict(size=10, color="#333"), xanchor="center", yanchor="top",
     ))
 
     fig = go.Figure(
@@ -745,20 +720,21 @@ def build_factory_layout(mrf: MRF) -> go.Figure:
               tipping_trace, landfill_trace],
         layout=go.Layout(
             title=title_for(t0),
-            # fixedrange=False lets mobile users pinch-zoom and pan the wide layout.
-            xaxis=dict(range=[-0.5, 11.4], showgrid=False, showticklabels=False,
+            # x/y scales are independent — explicit height keeps the chart a
+            # readable portrait on phones while still using the available
+            # width on desktop. fixedrange=False lets users pinch-zoom.
+            xaxis=dict(range=[0.2, 7.2], showgrid=False, showticklabels=False,
                        zeroline=False, fixedrange=False),
-            yaxis=dict(range=[-0.1, 6.9], showgrid=False, showticklabels=False,
-                       zeroline=False, fixedrange=False,
-                       scaleanchor="x", scaleratio=0.55),
+            yaxis=dict(range=[0.6, 13.1], showgrid=False, showticklabels=False,
+                       zeroline=False, fixedrange=False),
             shapes=shapes,
             annotations=annotations,
             plot_bgcolor="#fafafa",
             paper_bgcolor="white",
-            height=560,
-            margin=dict(t=80, l=20, r=20, b=80),
+            height=720,
+            margin=dict(t=70, l=20, r=20, b=80),
             updatemenus=[{
-                "type": "buttons", "x": 0.02, "y": -0.04,
+                "type": "buttons", "x": 0.02, "y": -0.02,
                 "xanchor": "left", "yanchor": "top",
                 "showactive": False,
                 "buttons": [
@@ -775,7 +751,7 @@ def build_factory_layout(mrf: MRF) -> go.Figure:
             sliders=[{
                 "active": 0,
                 "currentvalue": {"prefix": "Time: ", "font": {"size": 13}},
-                "len": 0.80, "x": 0.16, "xanchor": "left", "y": -0.04,
+                "len": 0.80, "x": 0.16, "xanchor": "left", "y": -0.02,
                 "pad": {"t": 30},
                 "steps": [{
                     "label": f.name, "method": "animate",
