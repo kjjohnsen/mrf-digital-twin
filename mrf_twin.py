@@ -588,33 +588,37 @@ def build_factory_layout(mrf: MRF) -> go.Figure:
         return ["#2ecc71" if station_status_at(st, t) == "running" else "#e74c3c"
                 for st in STATIONS]
 
-    def loads_xy(t: float) -> tuple[list[float], list[float], list[str]]:
-        xs, ys, txts = [], [], []
-        per_loc = defaultdict(int)
-        for load in mrf.loads:
+    # Pre-allocate one marker slot per load so each load has a stable index across
+    # frames. Plotly's frame transition interpolates marker positions by index — if
+    # the array shrank when a load finished, every remaining load would shift one
+    # slot and appear to slide backward.
+    total_loads = len(mrf.loads)
+
+    def loads_xy(t: float) -> tuple[list, list, list[str]]:
+        xs: list = [None] * total_loads
+        ys: list = [None] * total_loads
+        txts: list[str] = [""] * total_loads
+        for i, load in enumerate(mrf.loads):
             loc = load_location_at(load, t)
             if loc is None:
                 continue
+            # Each load gets a permanent offset within its current station's box,
+            # keyed by load.id, so it doesn't visually jump when neighbors leave.
             if loc == "tipping_floor":
                 base = TIPPING_POS
-                n = per_loc[loc]
-                # spread loads in a small cluster under the label
-                col = n % 4
-                row = n // 4
-                xs.append(base[0] - 0.18 + col * 0.12)
-                ys.append(base[1] + 0.35 - row * 0.13)
+                col = load.id % 4
+                row = (load.id // 4) % 3
+                xs[i] = base[0] - 0.18 + col * 0.12
+                ys[i] = base[1] + 0.35 - row * 0.13
             elif loc in POS:
                 base = POS[loc]
-                n = per_loc[loc]
-                # stack vertically below the station box
-                col = n % 2
-                row = n // 2
-                xs.append(base[0] - 0.12 + col * 0.24)
-                ys.append(base[1] - 0.50 - row * 0.18)
+                col = load.id % 2
+                row = (load.id // 2) % 3
+                xs[i] = base[0] - 0.12 + col * 0.24
+                ys[i] = base[1] - 0.50 - row * 0.18
             else:
                 continue
-            txts.append(f"Load #{load.id} &middot; {loc}")
-            per_loc[loc] += 1
+            txts[i] = f"Load #{load.id} &middot; {loc}"
         return xs, ys, txts
 
     def bales_sizes_texts(t: float) -> tuple[list[float], list[str]]:
