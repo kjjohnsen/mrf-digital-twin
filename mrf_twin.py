@@ -539,11 +539,15 @@ def build_factory_layout(mrf: MRF) -> go.Figure:
             xanchor="center", yanchor="middle",
         ))
 
-    # Bale labels (above each pile)
+    def pretty_material(m: str) -> str:
+        # Keep uppercase abbreviations (OCC, PET, HDPE) as-is; capitalize the rest
+        return m if m.isupper() else m.replace("_", " ").capitalize()
+
+    # Bale name labels (above each pile, with extra clearance for the tonnage line below)
     for material, (bx, by) in BALE_POS.items():
         annotations.append(dict(
-            x=bx, y=by + 0.55, xref="x", yref="y",
-            text=f"<b>{material}</b>", showarrow=False,
+            x=bx, y=by + 1.0, xref="x", yref="y",
+            text=f"<b>{pretty_material(material)}</b>", showarrow=False,
             font=dict(size=10, color="#333"),
         ))
 
@@ -647,13 +651,19 @@ def build_factory_layout(mrf: MRF) -> go.Figure:
         hovertext=lt0, hoverinfo="text",
         showlegend=False, name="loads",
     )
+    # Bale squares: markers only — tonnage text on small piles overflowed.
     bales_trace = go.Scatter(
-        x=bale_x_arr, y=bale_y_arr, mode="markers+text",
+        x=bale_x_arr, y=bale_y_arr, mode="markers",
         marker=dict(symbol="square", size=bs0, color=bale_color_arr,
                     line=dict(color="black", width=1)),
-        text=bt0, textposition="middle center",
-        textfont=dict(size=9, color="white"),
         hoverinfo="skip", showlegend=False, name="bales",
+    )
+    # Bale tonnage labels at a fixed y just above the squares, independent of size.
+    bale_tonnage_y_arr = [by + 0.55 for (_, by) in BALE_POS.values()]
+    bale_tonnages_trace = go.Scatter(
+        x=bale_x_arr, y=bale_tonnage_y_arr, mode="text",
+        text=bt0, textfont=dict(size=10, color="#333"),
+        hoverinfo="skip", showlegend=False, name="bale_tonnages",
     )
     tipping_trace = go.Scatter(
         x=[TIPPING_POS[0]], y=[TIPPING_POS[1] + 0.3], mode="markers+text",
@@ -702,8 +712,9 @@ def build_factory_layout(mrf: MRF) -> go.Figure:
                                        line=dict(color="black", width=0.6))),
                 go.Scatter(x=bale_x_arr, y=bale_y_arr,
                            marker=dict(symbol="square", size=bs, color=bale_color_arr,
-                                       line=dict(color="black", width=1)),
-                           text=bt),
+                                       line=dict(color="black", width=1))),
+                go.Scatter(x=bale_x_arr, y=bale_tonnage_y_arr,
+                           text=bt, textfont=dict(size=10, color="#333")),
                 go.Scatter(x=[TIPPING_POS[0]], y=[TIPPING_POS[1] + 0.3],
                            marker=dict(symbol="triangle-up", size=tsize, color="#7f8c8d",
                                        line=dict(color="black", width=1)),
@@ -721,7 +732,7 @@ def build_factory_layout(mrf: MRF) -> go.Figure:
     # ---- legend for status ----
     # add a small fake legend via annotation
     annotations.append(dict(
-        x=0.4, y=6.3, xref="x", yref="y", showarrow=False,
+        x=0.0, y=6.7, xref="x", yref="y", showarrow=False,
         text=("<b>Equipment status:</b>  "
               "<span style='color:#2ecc71'>&#9632; running</span>   "
               "<span style='color:#e74c3c'>&#9632; down</span>   "
@@ -730,13 +741,16 @@ def build_factory_layout(mrf: MRF) -> go.Figure:
     ))
 
     fig = go.Figure(
-        data=[stations_trace, loads_trace, bales_trace, tipping_trace, landfill_trace],
+        data=[stations_trace, loads_trace, bales_trace, bale_tonnages_trace,
+              tipping_trace, landfill_trace],
         layout=go.Layout(
             title=title_for(t0),
+            # fixedrange=False lets mobile users pinch-zoom and pan the wide layout.
             xaxis=dict(range=[-0.5, 11.4], showgrid=False, showticklabels=False,
-                       zeroline=False, fixedrange=True),
-            yaxis=dict(range=[-0.1, 6.6], showgrid=False, showticklabels=False,
-                       zeroline=False, fixedrange=True, scaleanchor="x", scaleratio=0.55),
+                       zeroline=False, fixedrange=False),
+            yaxis=dict(range=[-0.1, 6.9], showgrid=False, showticklabels=False,
+                       zeroline=False, fixedrange=False,
+                       scaleanchor="x", scaleratio=0.55),
             shapes=shapes,
             annotations=annotations,
             plot_bgcolor="#fafafa",
@@ -811,6 +825,7 @@ def build_dashboard(mrf: MRF, output_path: Path):
 <head>
 <meta charset="utf-8">
 <title>MRF Digital Twin - Daily Operations</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   body {{ font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
          max-width: 1400px; margin: 2em auto; padding: 0 2em; color: #222; }}
@@ -830,6 +845,20 @@ def build_dashboard(mrf: MRF, output_path: Path):
   .footer {{ color: #888; font-size: 0.8em; margin-top: 3em; border-top: 1px solid #eee;
              padding-top: 1em; }}
   code {{ background: #f1f1f1; padding: 1px 6px; border-radius: 3px; font-size: 0.92em; }}
+  /* Tablet */
+  @media (max-width: 900px) {{
+    body {{ margin: 1em auto; padding: 0 1em; }}
+    .row {{ grid-template-columns: 1fr 1fr; }}
+    .row2 {{ grid-template-columns: 1fr; }}
+  }}
+  /* Phone */
+  @media (max-width: 520px) {{
+    body {{ margin: 0.5em auto; padding: 0 0.75em; }}
+    h2 {{ margin-top: 1.5em; font-size: 1.15em; }}
+    .row {{ grid-template-columns: 1fr 1fr; gap: 10px; }}
+    .card {{ padding: 10px 12px; }}
+    .big {{ font-size: 1.4em; }}
+  }}
 </style>
 </head>
 <body>

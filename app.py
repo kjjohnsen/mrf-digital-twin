@@ -139,6 +139,10 @@ total_residue = mrf.residue_to_landfill
 recovery_pct = (total_recovered / total_in * 100) if total_in else 0
 mass_err = abs(total_recovered + total_residue + mrf.tipping_floor_tons - total_in)
 
+# Plotly config — responsive: True lets the chart re-fit on resize / device rotation.
+# scrollZoom enables pinch-zoom on mobile for the wide factory layout.
+PLOTLY_CONFIG = {"responsive": True, "scrollZoom": True, "displaylogo": False}
+
 col_a, col_b, col_c, col_d = st.columns(4)
 col_a.metric("Inbound", f"{total_in:.1f} t", f"{mrf.loads_arrived} trucks")
 col_b.metric("Recovered (baled)", f"{total_recovered:.1f} t", f"{recovery_pct:.1f}% of inbound")
@@ -151,20 +155,24 @@ st.subheader("Factory layout — live material flow")
 st.caption(
     "Press **Play** to watch a day of operations. Truck loads (orange dots) flow station-to-station; "
     "bale piles grow above each extraction station; stations turn red while broken down. "
-    "Drag the slider to scrub to any time."
+    "Drag the slider to scrub to any time. On a phone, pinch to zoom and drag to pan."
 )
-st.plotly_chart(mrf_twin.build_factory_layout(mrf), use_container_width=True)
+st.plotly_chart(mrf_twin.build_factory_layout(mrf),
+                use_container_width=True, config=PLOTLY_CONFIG)
 
 st.subheader("Material flow — full-day Sankey")
-st.plotly_chart(mrf_twin.build_sankey(mrf), use_container_width=True)
+st.plotly_chart(mrf_twin.build_sankey(mrf),
+                use_container_width=True, config=PLOTLY_CONFIG)
 
 left, right = st.columns(2)
 with left:
     st.subheader("Tipping floor & cumulative output")
-    st.plotly_chart(mrf_twin.build_inventory_chart(mrf), use_container_width=True)
+    st.plotly_chart(mrf_twin.build_inventory_chart(mrf),
+                    use_container_width=True, config=PLOTLY_CONFIG)
 with right:
     st.subheader("Equipment downtime")
-    st.plotly_chart(mrf_twin.build_gantt(mrf), use_container_width=True)
+    st.plotly_chart(mrf_twin.build_gantt(mrf),
+                    use_container_width=True, config=PLOTLY_CONFIG)
 
 left, right = st.columns(2)
 with left:
