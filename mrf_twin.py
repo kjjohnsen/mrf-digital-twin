@@ -547,10 +547,11 @@ def build_factory_layout(mrf: MRF) -> go.Figure:
             font=dict(size=10, color="#333"),
         ))
 
-    # Tipping floor label
+    # Tipping floor label (positioned well above the pile so it doesn't clash with
+    # the pile's tonnage readout when the pile gets large)
     annotations.append(dict(
-        x=TIPPING_POS[0], y=TIPPING_POS[1] + 0.95, xref="x", yref="y",
-        text="<b>Tipping<br>floor</b>", showarrow=False,
+        x=TIPPING_POS[0], y=TIPPING_POS[1] + 1.35, xref="x", yref="y",
+        text="<b>Tipping floor</b>", showarrow=False,
         font=dict(size=10, color="#333"), align="center",
     ))
     # Landfill label
@@ -558,22 +559,6 @@ def build_factory_layout(mrf: MRF) -> go.Figure:
         x=LANDFILL_POS[0], y=LANDFILL_POS[1] - 0.55, xref="x", yref="y",
         text="<b>Landfill (residue)</b>", showarrow=False,
         font=dict(size=10, color="#333"),
-    ))
-
-    # Inbound / output flow arrows at the line ends
-    annotations.append(dict(
-        x=TIPPING_POS[0] - 0.30, y=TIPPING_POS[1] + 0.5,
-        ax=TIPPING_POS[0] - 0.30, ay=TIPPING_POS[1] + 1.1,
-        xref="x", yref="y", axref="x", ayref="y",
-        showarrow=True, arrowhead=3, arrowsize=1.5, arrowwidth=2,
-        arrowcolor="#2c7", text="<b>trucks in</b>", font=dict(size=10, color="#2c7"),
-    ))
-    annotations.append(dict(
-        x=OUTPUT_POS[0] + 0.30, y=OUTPUT_POS[1],
-        ax=OUTPUT_POS[0] - 0.10, ay=OUTPUT_POS[1],
-        xref="x", yref="y", axref="x", ayref="y",
-        showarrow=True, arrowhead=3, arrowsize=1.5, arrowwidth=2,
-        arrowcolor="#777",
     ))
 
     # ---- dynamic data builders ----
